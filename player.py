@@ -1,5 +1,4 @@
 import pygame
-from field import Field
 
 class Player:
     # State consts
@@ -7,9 +6,15 @@ class Player:
     MOVING_STATE = 1
     USING_STATE = 2
     SWITCHING_STATE = 3
+    PICKING_UP_STATE = 4
 
     WALK_SPEED = 3
     RUN_SPEED = 6
+
+    NO_ITEM =     -1
+    ROCK_ITEM =    0
+    WEED_ITEM =    1
+    TURNIP_ITEM =  2
 
     DOWN = 0
     UP = 1
@@ -18,7 +23,9 @@ class Player:
 
     FRAME_SIZE = (100, 100)
     TOOL_FRAME_SIZE = (32, 32)
+    ITEM_FRAME_SIZE = (32, 32)
     TOOL_OFFSET = (-40, -50)
+    ITEM_OFFSET = (-18, -40)
     TILE_SIZE = 32
 
     # Tool consts
@@ -32,10 +39,20 @@ class Player:
     tool_frame_rect = pygame.Rect(0, 0, TOOL_FRAME_SIZE[0], TOOL_FRAME_SIZE[1])
     tool_screen_rect = pygame.Rect(0, 0, TOOL_FRAME_SIZE[0], TOOL_FRAME_SIZE[1])
 
+    # Item vars
+    item_frame_rect = pygame.Rect(0, 0, ITEM_FRAME_SIZE[0], ITEM_FRAME_SIZE[1])
+    item_screen_rect = pygame.Rect(0, 0, ITEM_FRAME_SIZE[0], ITEM_FRAME_SIZE[1])
+
     # Animations
     IDLE_ANIMATION = [(0, 60)]
     WALK_ANIMATION = [(1, 10), (0, 10), (2, 10), (0, 10)]
     RUN_ANIMATION = [(3, 8), (0, 8), (4, 8), (0, 8)]
+
+    PICKUP_ANIMATION =    [(5, 10)]
+    HOLD_ANIMATION =      [(6, 60)]
+    HOLD_WALK_ANIMATION = [(6, 10), (7, 10), (6, 10), (8, 10)]
+    HOLD_RUN_ANIMATION =  [(6, 8), (9, 8), (6, 8), (10, 8)]
+
     TILLING_ANIMATION = [(12, 15), (13, 4), (14, 8), (15, 30)]
     WATER_ANIMATION =     [(16, 15), (17, 30), (16, 7)]
     SOW_ANIMATION =       [(18, 10), (19, 10), (20, 10), (21, 10), (22, 30)]
@@ -47,7 +64,10 @@ class Player:
 
     # Variables
     screen = None
-    field = None
+    game = None
+
+    holding = False
+    held_item = None
 
     pos_x = 100
     pos_y = 100
@@ -74,13 +94,15 @@ class Player:
 
     spritesheet = None
     tool_sheet = None
+    item_sheet = None
 
-    def __init__(self, f, s):
-        self.field = f
+    def __init__(self, g, s):
+        self.game = g
         self.screen = s
 
         self.spritesheet = pygame.image.load("farmer-big.png").convert_alpha()
         self.tool_sheet = pygame.image.load("tools-big.png").convert_alpha()
+        self.item_sheet = pygame.image.load("items-big.png").convert_alpha()
         self.frame_rect = pygame.Rect(0, 0, self.FRAME_SIZE[0], self.FRAME_SIZE[1])
         self.screen_rect = pygame.Rect(self.pos_x, self.pos_y, self.FRAME_SIZE[0], self.FRAME_SIZE[1])
         self.screen_rect.center = (self.pos_x, self.pos_y)
@@ -121,8 +143,18 @@ class Player:
     def on_animation_end(self):
         if self.current_state == self.USING_STATE or self.current_state == self.SWITCHING_STATE:
             self.current_state = self.IDLE_STATE
-            self.set_animation(self.IDLE_ANIMATION)
+            if self.holding:
+                self.set_animation(self.HOLD_ANIMATION)
+            else:
+                self.set_animation(self.IDLE_ANIMATION)
             return
+        elif self.current_animation == self.PICKUP_ANIMATION:
+            self.holding = True
+            self.update_held_item_rect()
+            self.item_frame_rect.topleft = (self.held_item * self.ITEM_FRAME_SIZE[0], 0)
+
+            self.set_animation(self.HOLD_ANIMATION)
+            self.current_state = self.IDLE_STATE
 
     def next_tool(self):
         if (self.current_state != self.IDLE_STATE and self.current_state != self.MOVING_STATE):
@@ -145,15 +177,39 @@ class Player:
         elif self.tools[self.cur_tool] == self.TURNIP_SEED:
             self.set_animation(self.SOW_ANIMATION)
 
+    def use_hand(self):
+        if self.current_state != self.IDLE_STATE and self.current_state != self.MOVING_STATE:
+            return
+        
+        if self.holding:
+            result = self.game.drop_item(self.reticle_x, self.reticle_y, self.held_item)
+            if result != self.NO_ITEM:
+                self.held_item = None
+                self.holding = False
+                self.set_animation(self.IDLE_ANIMATION)
+        else:
+            result = self.game.use_tile(self.reticle_x, self.reticle_y)
+            print("TRY TO PICK UP: "+str(result))
+            if result != self.NO_ITEM:
+                self.held_item = result
+                self.current_state = self.PICKING_UP_STATE
+                self.set_animation(self.PICKUP_ANIMATION)
+
     def move(self, direction):
         if self.current_state != self.IDLE_STATE and self.current_state != self.MOVING_STATE:
             return
 
         if self.current_state != self.MOVING_STATE:
             if self.running:
-                self.set_animation(self.RUN_ANIMATION)
+                if self.holding:
+                    self.set_animation(self.HOLD_RUN_ANIMATION)
+                else:
+                    self.set_animation(self.RUN_ANIMATION)
             else:
-                self.set_animation(self.WALK_ANIMATION)
+                if self.holding:
+                    self.set_animation(self.HOLD_WALK_ANIMATION)
+                else:
+                    self.set_animation(self.WALK_ANIMATION)
             self.current_state = self.MOVING_STATE
 
         if self.running == True:
@@ -185,12 +241,18 @@ class Player:
 
         self.screen_rect.center = (self.pos_x, self.pos_y)
         self.update_tile_position()
-        self.field.set_reticle_pos(self.reticle_x, self.reticle_y)
+        self.game.set_reticle_pos(self.reticle_x, self.reticle_y)
+
+        if self.holding:
+            self.update_held_item_rect()
 
     def stop_move(self):
         if self.current_state == self.MOVING_STATE:
             self.current_state = self.IDLE_STATE
-            self.set_animation(self.IDLE_ANIMATION)
+            if self.holding:
+                self.set_animation(self.HOLD_ANIMATION)
+            else:
+                self.set_animation(self.IDLE_ANIMATION)
 
     def start_running(self):
         if self.current_state == self.USING_STATE:
@@ -223,11 +285,14 @@ class Player:
 
     def on_frame(self):
         if self.current_frame == self.TILLING_FRAME:
-            self.field.till_tile(self.reticle_x, self.reticle_y)
+            self.game.till_tile(self.reticle_x, self.reticle_y)
         elif self.current_frame == self.SOWING_FRAME:
-            self.field.sow_tile(self.tile_x, self.tile_y)
+            self.game.sow_tile(self.tile_x, self.tile_y)
         elif self.current_frame == self.WATERING_FRAME:
-            self.field.water_tile(self.reticle_x, self.reticle_y)
+            self.game.water_tile(self.reticle_x, self.reticle_y)
+
+    def update_held_item_rect(self):
+        self.item_screen_rect.topleft = (self.pos_x + self.ITEM_OFFSET[0], self.pos_y + self.ITEM_OFFSET[1])
 
     def update(self):
         self.update_animation()
@@ -237,3 +302,6 @@ class Player:
 
         if self.current_state == self.SWITCHING_STATE:
             self.screen.blit(self.tool_sheet, self.tool_screen_rect, self.tool_frame_rect)
+
+        if self.holding:
+            self.screen.blit(self.item_sheet, self.item_screen_rect, self.item_frame_rect)
