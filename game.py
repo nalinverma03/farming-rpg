@@ -1,5 +1,6 @@
 import pygame
 from player import Player
+from field import Field
 
 pygame.init()
 
@@ -14,7 +15,8 @@ RIGHT = 3
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 clock = pygame.time.Clock()
-player = Player()
+field = Field(screen)
+player = Player(field, screen)
 
 running = True
 while running:
@@ -43,6 +45,8 @@ while running:
         player.start_running()
       if event.key == pygame.K_z:
         player.use_tool()
+      if event.key == pygame.K_s:
+        player.next_tool()
 
     if event.type == pygame.KEYUP:
       if event.key == pygame.K_LSHIFT:
@@ -57,7 +61,8 @@ while running:
   # Drawing code
   screen.fill((255,255,255))
 
-  player.draw(screen)
+  field.draw()
+  player.draw()
 
   pygame.display.flip()
     
