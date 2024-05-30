@@ -60,7 +60,7 @@ class Game:
     # Quit game if user presses X on window
     for event in pygame.event.get():
       if event.type == pygame.KEYDOWN:
-        if event.key == pygame.K_LSHIFT:
+        if event.key == pygame.K_LSHIFT or event.key == pygame.K_RSHIFT:
           self.player.start_running()
         if event.key == pygame.K_z:
           self.player.use_tool()
@@ -70,7 +70,7 @@ class Game:
           self.player.next_tool()
 
       if event.type == pygame.KEYUP:
-        if event.key == pygame.K_LSHIFT:
+        if event.key == pygame.K_LSHIFT or event.key == pygame.K_RSHIFT:
           self.player.stop_running()
 
       if event.type == pygame.QUIT:
